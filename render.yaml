@@ -1,0 +1,13 @@
+# Готовый конфиг для деплоя на Render (https://render.com).
+# 1) Залейте эту папку в репозиторий GitHub.
+# 2) На Render → New → Blueprint → выберите репозиторий. Render сам всё поднимет.
+services:
+  - type: web
+    name: quickshare
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
