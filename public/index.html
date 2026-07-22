@@ -101,13 +101,19 @@
     padding: 7px 12px; font-size: 13px; border-radius: 10px; font-weight: 500;
   }
   .chip.danger { color: var(--danger); }
+  .chip.primary { background: var(--accent); color: #fff; border-color: transparent; }
   .chip:active { transform: scale(.96); }
   .ts { color: var(--muted); font-size: 11px; margin-top: 8px; }
   /* Подсказка о перетаскивании файла в Finder — только на устройствах с мышью. */
   .draghint { margin-left: 6px; opacity: .75; }
   @media (hover: none) { .draghint { display: none; } }
-  .item[draggable="true"] { cursor: grab; }
+  /* -webkit-user-drag обязателен, иначе WebKit (Safari) не начинает перетаскивание элемента. */
+  .item[draggable="true"] { cursor: grab; -webkit-user-drag: element; }
   .item[draggable="true"]:active { cursor: grabbing; }
+  /* Текст внутри карточки не должен перехватывать перетаскивание выделением. */
+  .item[draggable="true"] .name, .item[draggable="true"] .sub, .item[draggable="true"] .fileicon {
+    -webkit-user-select: none; user-select: none;
+  }
   /* Кнопки внутри карточки не должны перехватывать перетаскивание. */
   .item .actions, .item .actions * { cursor: pointer; }
 
@@ -197,6 +203,8 @@
 const $ = (s) => document.querySelector(s);
 let ws = null, room = null, items = new Map(), reconnectT = null;
 let internalDrag = false; // тащим файл ИЗ приложения наружу — не показывать оверлей загрузки
+// Родное окно сохранения (File System Access API) — есть в Chrome/Edge на компьютере.
+const canSaveAs = typeof window.showSaveFilePicker === 'function';
 
 // ── Утилиты ──
 function toast(msg) {
@@ -259,11 +267,14 @@ function renderItem(it) {
       </div>
       ${isImg ? `<img class="thumb" src="${url}?inline=1" loading="lazy" alt="" draggable="false">` : ''}
       <div class="actions">
+        ${canSaveAs ? `<button class="chip primary" data-saveas>💾 Сохранить как…</button>` : ''}
         <a class="chip" href="${url}" download>⬇ Скачать</a>
         ${isImg ? `<button class="chip" data-copyimg>📋 Копировать</button>` : ''}
         <button class="chip danger" data-del>Удалить</button>
       </div>
-      <div class="ts">${fmtTime(it.ts)}<span class="draghint">· перетащите на рабочий стол</span></div>`;
+      <div class="ts">${fmtTime(it.ts)}<span class="draghint">· или перетащите карточку на рабочий стол</span></div>`;
+    const sa = el.querySelector('[data-saveas]');
+    if (sa) sa.onclick = () => saveAs(url, it.name, it.mime);
     const ci = el.querySelector('[data-copyimg]');
     if (ci) ci.onclick = () => copyImage(url + '?inline=1');
 
@@ -284,6 +295,24 @@ function renderItem(it) {
   }
   el.querySelector('[data-del]').onclick = () => send({ type: 'remove', id: it.id });
   return el;
+}
+
+// Сохранение через родной диалог: можно сразу выбрать Рабочий стол, минуя «Загрузки».
+async function saveAs(url, name, mime) {
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: name,
+      types: mime ? [{ description: 'Файл', accept: { [mime]: ['.' + (name.split('.').pop() || 'bin')] } }] : undefined,
+    });
+    const blob = await (await fetch(url)).blob();
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    toast('Сохранено ✓');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // пользователь закрыл диалог
+    toast('Не удалось сохранить');
+  }
 }
 
 async function copyText(text) {
