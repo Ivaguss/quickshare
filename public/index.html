@@ -103,6 +103,13 @@
   .chip.danger { color: var(--danger); }
   .chip:active { transform: scale(.96); }
   .ts { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  /* Подсказка о перетаскивании файла в Finder — только на устройствах с мышью. */
+  .draghint { margin-left: 6px; opacity: .75; }
+  @media (hover: none) { .draghint { display: none; } }
+  .item[draggable="true"] { cursor: grab; }
+  .item[draggable="true"]:active { cursor: grabbing; }
+  /* Кнопки внутри карточки не должны перехватывать перетаскивание. */
+  .item .actions, .item .actions * { cursor: pointer; }
 
   /* ── Ввод ── */
   footer {
@@ -189,6 +196,7 @@
 <script>
 const $ = (s) => document.querySelector(s);
 let ws = null, room = null, items = new Map(), reconnectT = null;
+let internalDrag = false; // тащим файл ИЗ приложения наружу — не показывать оверлей загрузки
 
 // ── Утилиты ──
 function toast(msg) {
@@ -249,15 +257,30 @@ function renderItem(it) {
           <div class="sub">${fmtSize(it.size)}</div>
         </div>
       </div>
-      ${isImg ? `<img class="thumb" src="${url}?inline=1" loading="lazy" alt="">` : ''}
+      ${isImg ? `<img class="thumb" src="${url}?inline=1" loading="lazy" alt="" draggable="false">` : ''}
       <div class="actions">
         <a class="chip" href="${url}" download>⬇ Скачать</a>
         ${isImg ? `<button class="chip" data-copyimg>📋 Копировать</button>` : ''}
         <button class="chip danger" data-del>Удалить</button>
       </div>
-      <div class="ts">${fmtTime(it.ts)}</div>`;
+      <div class="ts">${fmtTime(it.ts)}<span class="draghint">· перетащите на рабочий стол</span></div>`;
     const ci = el.querySelector('[data-copyimg]');
     if (ci) ci.onclick = () => copyImage(url + '?inline=1');
+
+    // Перетаскивание файла прямо в Finder / Проводник (без «Скачать»).
+    // Работает через DownloadURL — поддерживают Chrome, Edge и другие Chromium-браузеры.
+    el.draggable = true;
+    el.addEventListener('dragstart', (e) => {
+      internalDrag = true;
+      const absUrl = location.origin + url;
+      const mime = it.mime || 'application/octet-stream';
+      const safeName = it.name.replace(/[:\r\n]/g, '_');
+      e.dataTransfer.effectAllowed = 'copy';
+      e.dataTransfer.setData('DownloadURL', `${mime}:${safeName}:${absUrl}`);
+      e.dataTransfer.setData('text/uri-list', absUrl);
+      e.dataTransfer.setData('text/plain', absUrl);
+    });
+    el.addEventListener('dragend', () => { internalDrag = false; });
   }
   el.querySelector('[data-del]').onclick = () => send({ type: 'remove', id: it.id });
   return el;
@@ -395,8 +418,8 @@ window.addEventListener('paste', (e) => {
 
 // Drag & drop
 let dragDepth = 0;
-window.addEventListener('dragenter', (e) => { if (!room) return; e.preventDefault(); dragDepth++; $('#drop').classList.add('show'); });
-window.addEventListener('dragover', (e) => { if (room) e.preventDefault(); });
+window.addEventListener('dragenter', (e) => { if (!room || internalDrag) return; e.preventDefault(); dragDepth++; $('#drop').classList.add('show'); });
+window.addEventListener('dragover', (e) => { if (room && !internalDrag) e.preventDefault(); });
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#drop').classList.remove('show'); } });
 window.addEventListener('drop', (e) => {
   if (!room) return;
